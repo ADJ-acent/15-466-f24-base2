@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <deque>
+#include <array>
 
 struct PlayMode : Mode {
 	PlayMode();
@@ -15,6 +16,8 @@ struct PlayMode : Mode {
 	virtual bool handle_event(SDL_Event const &, glm::uvec2 const &window_size) override;
 	virtual void update(float elapsed) override;
 	virtual void draw(glm::uvec2 const &drawable_size) override;
+
+	bool check_intersection(glm::vec3 p0, glm::vec3 direction, glm::vec3 center, float radius);
 
 	//----- game state -----
 
@@ -28,13 +31,29 @@ struct PlayMode : Mode {
 	Scene scene;
 
 	//hexapod leg to wobble:
-	Scene::Transform *hip = nullptr;
-	Scene::Transform *upper_leg = nullptr;
-	Scene::Transform *lower_leg = nullptr;
-	glm::quat hip_base_rotation;
-	glm::quat upper_leg_base_rotation;
-	glm::quat lower_leg_base_rotation;
-	float wobble = 0.0f;
+	glm::vec2 y_range;
+	glm::vec3 spawn_range = glm::vec3(0);
+	glm::vec3 despawn_range = glm::vec3(0);
+	glm::vec3 up_vector;
+	glm::quat hamster_base_rotation = glm::quat();
+	Scene::Transform *hamster = nullptr;
+	const float hamster_radius = 5.0f;
+	float rotate_speed = 1.0f;
+	const float max_rotate_speed = 5.0f;
+	float rotate_interval = 0;
+
+	// obstacles
+	struct Obstacle {
+		Scene::Transform *transform;
+		float radius = 0.0f;
+		bool active;
+	};
+
+	std::array<Obstacle, 12> obstacles;
+	uint8_t obstacles_count = 0;
+	float since_last_obstacle_spawn = 0.0f;
+	float spawn_rate = 1.0f;
+	uint8_t in_use_count = 0;
 	
 	//camera:
 	Scene::Camera *camera = nullptr;

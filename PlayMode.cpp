@@ -12,23 +12,23 @@
 
 #include <random>
 
-GLuint hexapod_meshes_for_lit_color_texture_program = 0;
-Load< MeshBuffer > hexapod_meshes(LoadTagDefault, []() -> MeshBuffer const * {
-	MeshBuffer const *ret = new MeshBuffer(data_path("hexapod.pnct"));
-	hexapod_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
+GLuint main_meshes_for_lit_color_texture_program = 0;
+Load< MeshBuffer > main_meshes(LoadTagDefault, []() -> MeshBuffer const * {
+	MeshBuffer const *ret = new MeshBuffer(data_path("main.pnct"));
+	main_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
 	return ret;
 });
 
-Load< Scene > hexapod_scene(LoadTagDefault, []() -> Scene const * {
-	return new Scene(data_path("hexapod.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
-		Mesh const &mesh = hexapod_meshes->lookup(mesh_name);
+Load< Scene > main_scene(LoadTagDefault, []() -> Scene const * {
+	return new Scene(data_path("main.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
+		Mesh const &mesh = main_meshes->lookup(mesh_name);
 
 		scene.drawables.emplace_back(transform);
 		Scene::Drawable &drawable = scene.drawables.back();
 
 		drawable.pipeline = lit_color_texture_program_pipeline;
 
-		drawable.pipeline.vao = hexapod_meshes_for_lit_color_texture_program;
+		drawable.pipeline.vao = main_meshes_for_lit_color_texture_program;
 		drawable.pipeline.type = mesh.type;
 		drawable.pipeline.start = mesh.start;
 		drawable.pipeline.count = mesh.count;
@@ -36,24 +36,56 @@ Load< Scene > hexapod_scene(LoadTagDefault, []() -> Scene const * {
 	});
 });
 
-PlayMode::PlayMode() : scene(*hexapod_scene) {
-	//get pointers to leg for convenience:
-	for (auto &transform : scene.transforms) {
-		if (transform.name == "Hip.FL") hip = &transform;
-		else if (transform.name == "UpperLeg.FL") upper_leg = &transform;
-		else if (transform.name == "LowerLeg.FL") lower_leg = &transform;
-	}
-	if (hip == nullptr) throw std::runtime_error("Hip not found.");
-	if (upper_leg == nullptr) throw std::runtime_error("Upper leg not found.");
-	if (lower_leg == nullptr) throw std::runtime_error("Lower leg not found.");
+// set up pseudo random number generator:
+std::random_device rd;
+std::mt19937 gen(rd());
+std::uniform_int_distribution<int>index_dist(0, 11);
+std::uniform_real_distribution<float>pos_dist(0.0f, 1.0f);
 
-	hip_base_rotation = hip->rotation;
-	upper_leg_base_rotation = upper_leg->rotation;
-	lower_leg_base_rotation = lower_leg->rotation;
+PlayMode::PlayMode() : scene(*main_scene) {
+	// get pointers to hamster
+	for (auto &transform : scene.transforms) {
+		if (transform.name == "Hamster") hamster = &transform;
+		else if (transform.name == "StartPointsRight") {
+			spawn_range = transform.position;
+			y_range.x = transform.position.y;
+		}
+		else if (transform.name == "StartPointsLeft") y_range.y = transform.position.y;
+		else if (transform.name == "EndPoint") {
+			despawn_range = transform.position;
+		}
+		else if (transform.name.substr(0,5) == "TreeT") {
+			obstacles[obstacles_count] = {&transform, 1.5f, false};
+
+			obstacles_count++;
+		}
+		else if (transform.name.substr(0,4) == "Rock") {
+			obstacles[obstacles_count] = {&transform, 7.5f, false};
+
+			obstacles_count++;
+		}
+	}
+	if (hamster == nullptr) throw std::runtime_error("Hamster not found.");
+	if (y_range == glm::vec2()) throw std::runtime_error("Y Range not found");
+	if (spawn_range == glm::vec3(0)) throw std::runtime_error("Spawn Range not found");
+	if (despawn_range == glm::vec3(0)) throw std::runtime_error("Despawn Range not found.");
+	if (obstacles_count != 12) throw std::runtime_error("More or less than 12 obstacles found.");
+
+	despawn_range.y = y_range.x;
+	hamster_base_rotation = hamster->rotation;
+	// vector for obstacles to go along
+	up_vector = glm::normalize(despawn_range - spawn_range);
+	assert(up_vector.y == 0);
+	
+	// set all obstacle location to the despawn area:
+	for (uint8_t i = 0; i < uint8_t(obstacles.size()); ++i) {
+		obstacles[i].transform->position = despawn_range;
+	}
 
 	//get pointer to camera for convenience:
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
 	camera = &scene.cameras.front();
+
 }
 
 PlayMode::~PlayMode() {
@@ -96,70 +128,83 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			down.pressed = false;
 			return true;
 		}
-	} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
-		if (SDL_GetRelativeMouseMode() == SDL_FALSE) {
-			SDL_SetRelativeMouseMode(SDL_TRUE);
-			return true;
-		}
-	} else if (evt.type == SDL_MOUSEMOTION) {
-		if (SDL_GetRelativeMouseMode() == SDL_TRUE) {
-			glm::vec2 motion = glm::vec2(
-				evt.motion.xrel / float(window_size.y),
-				-evt.motion.yrel / float(window_size.y)
-			);
-			camera->transform->rotation = glm::normalize(
-				camera->transform->rotation
-				* glm::angleAxis(-motion.x * camera->fovy, glm::vec3(0.0f, 1.0f, 0.0f))
-				* glm::angleAxis(motion.y * camera->fovy, glm::vec3(1.0f, 0.0f, 0.0f))
-			);
-			return true;
-		}
 	}
 
 	return false;
 }
 
 void PlayMode::update(float elapsed) {
+	since_last_obstacle_spawn += elapsed;
 
-	//slowly rotates through [0,1):
-	wobble += elapsed / 10.0f;
-	wobble -= std::floor(wobble);
+	//rotates through [0,1):
+	rotate_interval += elapsed * rotate_speed;
+	rotate_interval -= std::floor(rotate_interval);
+	rotate_speed += elapsed * 0.2f;
 
-	hip->rotation = hip_base_rotation * glm::angleAxis(
-		glm::radians(5.0f * std::sin(wobble * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 1.0f, 0.0f)
-	);
-	upper_leg->rotation = upper_leg_base_rotation * glm::angleAxis(
-		glm::radians(7.0f * std::sin(wobble * 2.0f * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
-	lower_leg->rotation = lower_leg_base_rotation * glm::angleAxis(
-		glm::radians(10.0f * std::sin(wobble * 3.0f * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
+	uint8_t unused = 255;
+	for (uint8_t i = 0; i < uint8_t(obstacles.size()); ++i) {
+		if (obstacles[i].active) {
+			glm::vec3 old_pos = obstacles[i].transform->position;
+			glm::vec3 direction = glm::vec3(up_vector * rotate_speed * hamster_radius * 0.5f);
+			obstacles[i].transform->position += direction;
 
-	//move camera:
-	{
-
-		//combine inputs into a move:
-		constexpr float PlayerSpeed = 30.0f;
-		glm::vec2 move = glm::vec2(0.0f);
-		if (left.pressed && !right.pressed) move.x =-1.0f;
-		if (!left.pressed && right.pressed) move.x = 1.0f;
-		if (down.pressed && !up.pressed) move.y =-1.0f;
-		if (!down.pressed && up.pressed) move.y = 1.0f;
-
-		//make it so that moving diagonally doesn't go faster:
-		if (move != glm::vec2(0.0f)) move = glm::normalize(move) * PlayerSpeed * elapsed;
-
-		glm::mat4x3 frame = camera->transform->make_local_to_parent();
-		glm::vec3 frame_right = frame[0];
-		//glm::vec3 up = frame[1];
-		glm::vec3 frame_forward = -frame[2];
-
-		camera->transform->position += move.x * frame_right + move.y * frame_forward;
+			if (check_intersection(old_pos, direction, hamster->position, hamster_radius + obstacles[i].radius)){
+				std::cout<<"dead hamster" << std::endl;
+			}
+			if (obstacles[i].transform->position.x <= despawn_range.x) {
+				obstacles[i].active = false;
+				in_use_count --;
+			}
+		}
+		else {
+			unused = i;
+		}
 	}
 
+	if (since_last_obstacle_spawn > spawn_rate && in_use_count < 11) {
+		spawn_rate = std::max(0.2f, spawn_rate - 0.05f);
+		since_last_obstacle_spawn -= spawn_rate;
+		in_use_count++;
+		uint8_t i = uint8_t(index_dist(gen));
+		if (obstacles[i].active) {
+			assert(unused != 255);
+			assert(!obstacles[unused].active);
+			i = unused;
+		}
+
+		obstacles[i].active = true;
+		float rand_float = pos_dist(gen);
+		obstacles[i].transform->position = glm::vec3{
+			spawn_range.x, 
+			rand_float * y_range.x + (1.0f - rand_float) * y_range.y, 
+			spawn_range.z
+		};
+		obstacles[i].transform->rotation = glm::angleAxis(
+			glm::radians(360.0f * pos_dist(gen)),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+		
+	}
+
+	hamster->rotation = glm::angleAxis(
+		glm::radians(0.0f),
+		glm::vec3(0.0f, 1.0f, 0.0f)
+	);
+
+	float movement_direction = float(left.pressed) - float(right.pressed);
+	if (movement_direction != 0) {
+		hamster->rotation = glm::rotate(hamster->rotation, glm::radians(movement_direction * 10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		float old_y = hamster->position.y;
+		hamster->position.y += elapsed * movement_direction * rotate_speed * 15.0f;
+		hamster->position.y = std::clamp(hamster->position.y, y_range.x + 10.0f, y_range.y - 10.0f);
+
+		camera->transform->position.y += hamster->position.y - old_y;
+	}
+
+	hamster->rotation *= glm::angleAxis(
+		glm::radians(360.0f * rotate_interval),
+		glm::vec3(0.0f, 1.0f, 0.0f)
+	);
 	//reset button press counters:
 	left.downs = 0;
 	right.downs = 0;
@@ -201,14 +246,40 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 		));
 
 		constexpr float H = 0.09f;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
+		lines.draw_text("WASD moves",
 			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
 		float ofs = 2.0f / drawable_size.y;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
+		lines.draw_text("WASD moves",
 			glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + 0.1f * H + ofs, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
 	}
+}
+
+bool PlayMode::check_intersection(glm::vec3 p0, glm::vec3 direction, glm::vec3 center, float radius)
+{
+    glm::vec3 origin_from_center = p0 - center;
+
+    float A = glm::dot(direction, direction);
+    float B = 2.0f * glm::dot(origin_from_center, direction);
+    float C_value = glm::dot(origin_from_center, origin_from_center) - radius * radius;
+
+    float discriminant = B * B - 4.0f * A * C_value;
+
+    if (discriminant < 0) {
+        return false; // No intersection
+    } else {
+        float sqrt_discriminant = std::sqrt(discriminant);
+
+        float t1 = (-B - sqrt_discriminant) / (2.0f * A);
+        float t2 = (-B + sqrt_discriminant) / (2.0f * A);
+
+        // Check if either t1 or t2 is within the interval [0, 1]
+        if ((t1 >= 0.0f && t1 <= 1.0f) || (t2 >= 0.0f && t2 <= 1.0f)) {
+            return true; // Intersection occurs
+        }
+    }
+    return false; // No intersection within the segment
 }
