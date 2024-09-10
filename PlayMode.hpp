@@ -35,11 +35,7 @@ struct PlayMode : Mode {
 	//game ended?
 	bool game_end = false;
 
-	//hexapod leg to wobble:
-	glm::vec2 y_range;
-	glm::vec3 spawn_range = glm::vec3(0);
-	glm::vec3 despawn_range = glm::vec3(0);
-	glm::vec3 up_vector;
+	//hamster:
 	glm::vec3 hamster_base_position = glm::vec3();
 	Scene::Transform *hamster = nullptr;
 	const float hamster_radius = 5.0f;
@@ -47,13 +43,18 @@ struct PlayMode : Mode {
 	const float max_rotate_speed = 5.0f;
 	float rotate_interval = 0;
 
-	// obstacles
+	//obstacles
 	struct Obstacle {
 		Scene::Transform *transform;
+		float z_offset = 0.0f;
 		float radius = 0.0f;
 		bool active;
 	};
 
+	glm::vec2 y_range;
+	glm::vec3 spawn_range = glm::vec3(0);
+	glm::vec3 despawn_range = glm::vec3(0);
+	glm::vec3 up_vector; // direction for obstacle to travel towards
 	std::array<Obstacle, 12> obstacles;
 	uint8_t obstacles_count = 0;
 	float since_last_obstacle_spawn = 0.0f;

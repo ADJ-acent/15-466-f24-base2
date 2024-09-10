@@ -55,13 +55,12 @@ PlayMode::PlayMode() : scene(*main_scene) {
 			despawn_range = transform.position;
 		}
 		else if (transform.name.substr(0,5) == "TreeT") {
-			obstacles[obstacles_count] = {&transform, 1.5f, false};
+			obstacles[obstacles_count] = {&transform, 2.0f,1.5f, false};
 
 			obstacles_count++;
 		}
 		else if (transform.name.substr(0,4) == "Rock") {
-			obstacles[obstacles_count] = {&transform, 7.0f, false};
-
+			obstacles[obstacles_count] = {&transform, 2.5f, 7.0f, false};
 			obstacles_count++;
 		}
 	}
@@ -144,7 +143,6 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 void PlayMode::update(float elapsed) {
 	if (r.pressed) reset();
 	if (game_end) return;
-	since_last_obstacle_spawn += elapsed;
 
 	//rotates through [0,1):
 	rotate_interval += elapsed * rotate_speed;
@@ -155,7 +153,8 @@ void PlayMode::update(float elapsed) {
 	rotate_speed += elapsed * 0.2f;
 	
 
-	{// move obstacles closer to hamster
+	{// move obstacles closer to hamster and spawn new obstacles
+		since_last_obstacle_spawn += elapsed;
 		uint8_t unused = 255;
 		for (uint8_t i = 0; i < uint8_t(obstacles.size()); ++i) {
 			if (obstacles[i].active) {
@@ -192,7 +191,7 @@ void PlayMode::update(float elapsed) {
 			obstacles[i].transform->position = glm::vec3{
 				spawn_range.x, 
 				rand_float * y_range.x + (1.0f - rand_float) * y_range.y, 
-				spawn_range.z
+				spawn_range.z + obstacles[i].z_offset
 			};
 			obstacles[i].transform->rotation = glm::angleAxis(
 				glm::radians(360.0f * pos_dist(gen)),
