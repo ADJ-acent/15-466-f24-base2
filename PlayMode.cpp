@@ -60,7 +60,7 @@ PlayMode::PlayMode() : scene(*main_scene) {
 			obstacles_count++;
 		}
 		else if (transform.name.substr(0,4) == "Rock") {
-			obstacles[obstacles_count] = {&transform, 7.5f, false};
+			obstacles[obstacles_count] = {&transform, 7.0f, false};
 
 			obstacles_count++;
 		}
@@ -72,7 +72,7 @@ PlayMode::PlayMode() : scene(*main_scene) {
 	if (obstacles_count != 12) throw std::runtime_error("More or less than 12 obstacles found.");
 
 	despawn_range.y = y_range.x;
-	hamster_base_rotation = hamster->rotation;
+	hamster_base_position = hamster->position;
 	// vector for obstacles to go along
 	up_vector = glm::normalize(despawn_range - spawn_range);
 	assert(up_vector.y == 0);
@@ -85,6 +85,7 @@ PlayMode::PlayMode() : scene(*main_scene) {
 	//get pointer to camera for convenience:
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
 	camera = &scene.cameras.front();
+	camera_origin = camera->transform->position;
 
 }
 
@@ -113,6 +114,10 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			down.downs += 1;
 			down.pressed = true;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_r) {
+			r.downs += 1;
+			r.pressed = true;
+			return true;
 		}
 	} else if (evt.type == SDL_KEYUP) {
 		if (evt.key.keysym.sym == SDLK_a) {
@@ -127,89 +132,103 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		} else if (evt.key.keysym.sym == SDLK_s) {
 			down.pressed = false;
 			return true;
-		}
+		} else if (evt.key.keysym.sym == SDLK_r) {
+			r.pressed = false;
+			return true;
+		} 
 	}
 
 	return false;
 }
 
 void PlayMode::update(float elapsed) {
+	if (r.pressed) reset();
+	if (game_end) return;
 	since_last_obstacle_spawn += elapsed;
 
 	//rotates through [0,1):
 	rotate_interval += elapsed * rotate_speed;
-	rotate_interval -= std::floor(rotate_interval);
+	if (rotate_interval > 1.0f) {
+		score ++;
+		rotate_interval -= std::floor(rotate_interval);
+	}
 	rotate_speed += elapsed * 0.2f;
+	
 
-	uint8_t unused = 255;
-	for (uint8_t i = 0; i < uint8_t(obstacles.size()); ++i) {
-		if (obstacles[i].active) {
-			glm::vec3 old_pos = obstacles[i].transform->position;
-			glm::vec3 direction = glm::vec3(up_vector * rotate_speed * hamster_radius * 0.5f);
-			obstacles[i].transform->position += direction;
+	{// move obstacles closer to hamster
+		uint8_t unused = 255;
+		for (uint8_t i = 0; i < uint8_t(obstacles.size()); ++i) {
+			if (obstacles[i].active) {
+				glm::vec3 old_pos = obstacles[i].transform->position;
+				glm::vec3 direction = glm::vec3(up_vector * rotate_speed * hamster_radius * 0.5f);
+				obstacles[i].transform->position += direction;
 
-			if (check_intersection(old_pos, direction, hamster->position, hamster_radius + obstacles[i].radius)){
-				std::cout<<"dead hamster" << std::endl;
+				if (check_intersection(old_pos, direction, hamster->position, hamster_radius + obstacles[i].radius)){
+					game_end = true;
+				}
+				if (obstacles[i].transform->position.x <= despawn_range.x) {
+					obstacles[i].active = false;
+					in_use_count --;
+				}
 			}
-			if (obstacles[i].transform->position.x <= despawn_range.x) {
-				obstacles[i].active = false;
-				in_use_count --;
+			else {
+				unused = i;
 			}
 		}
-		else {
-			unused = i;
+
+		if (since_last_obstacle_spawn > spawn_rate && in_use_count < 11) {
+			spawn_rate = std::max(0.2f, spawn_rate - 0.05f);
+			since_last_obstacle_spawn -= spawn_rate;
+			in_use_count++;
+			uint8_t i = uint8_t(index_dist(gen));
+			if (obstacles[i].active) {
+				assert(unused != 255);
+				assert(!obstacles[unused].active);
+				i = unused;
+			}
+
+			obstacles[i].active = true;
+			float rand_float = pos_dist(gen);
+			obstacles[i].transform->position = glm::vec3{
+				spawn_range.x, 
+				rand_float * y_range.x + (1.0f - rand_float) * y_range.y, 
+				spawn_range.z
+			};
+			obstacles[i].transform->rotation = glm::angleAxis(
+				glm::radians(360.0f * pos_dist(gen)),
+				glm::vec3(0.0f, 0.0f, 1.0f)
+			);
+			
 		}
 	}
 
-	if (since_last_obstacle_spawn > spawn_rate && in_use_count < 11) {
-		spawn_rate = std::max(0.2f, spawn_rate - 0.05f);
-		since_last_obstacle_spawn -= spawn_rate;
-		in_use_count++;
-		uint8_t i = uint8_t(index_dist(gen));
-		if (obstacles[i].active) {
-			assert(unused != 255);
-			assert(!obstacles[unused].active);
-			i = unused;
-		}
-
-		obstacles[i].active = true;
-		float rand_float = pos_dist(gen);
-		obstacles[i].transform->position = glm::vec3{
-			spawn_range.x, 
-			rand_float * y_range.x + (1.0f - rand_float) * y_range.y, 
-			spawn_range.z
-		};
-		obstacles[i].transform->rotation = glm::angleAxis(
-			glm::radians(360.0f * pos_dist(gen)),
-			glm::vec3(0.0f, 0.0f, 1.0f)
+	{// rotate and move hamster on the y axis
+		hamster->rotation = glm::angleAxis(
+			glm::radians(0.0f),
+			glm::vec3(0.0f, 1.0f, 0.0f)
 		);
-		
+
+		float movement_direction = float(left.pressed) - float(right.pressed);
+		if (movement_direction != 0) {
+			hamster->rotation = glm::rotate(hamster->rotation, glm::radians(movement_direction * 10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			float old_y = hamster->position.y;
+			hamster->position.y += elapsed * movement_direction * rotate_speed * 15.0f;
+			hamster->position.y = std::clamp(hamster->position.y, y_range.x + 10.0f, y_range.y - 10.0f);
+
+			camera->transform->position.y += hamster->position.y - old_y;
+		}
+
+		hamster->rotation *= glm::angleAxis(
+			glm::radians(360.0f * rotate_interval),
+			glm::vec3(0.0f, 1.0f, 0.0f)
+		);
 	}
-
-	hamster->rotation = glm::angleAxis(
-		glm::radians(0.0f),
-		glm::vec3(0.0f, 1.0f, 0.0f)
-	);
-
-	float movement_direction = float(left.pressed) - float(right.pressed);
-	if (movement_direction != 0) {
-		hamster->rotation = glm::rotate(hamster->rotation, glm::radians(movement_direction * 10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		float old_y = hamster->position.y;
-		hamster->position.y += elapsed * movement_direction * rotate_speed * 15.0f;
-		hamster->position.y = std::clamp(hamster->position.y, y_range.x + 10.0f, y_range.y - 10.0f);
-
-		camera->transform->position.y += hamster->position.y - old_y;
-	}
-
-	hamster->rotation *= glm::angleAxis(
-		glm::radians(360.0f * rotate_interval),
-		glm::vec3(0.0f, 1.0f, 0.0f)
-	);
 	//reset button press counters:
 	left.downs = 0;
 	right.downs = 0;
 	up.downs = 0;
 	down.downs = 0;
+	r.downs = 0;
 }
 
 void PlayMode::draw(glm::uvec2 const &drawable_size) {
@@ -251,11 +270,51 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
 		float ofs = 2.0f / drawable_size.y;
-		lines.draw_text("WASD moves",
-			glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + 0.1f * H + ofs, 0.0),
-			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		if (!game_end) {
+			lines.draw_text("WASD moves",
+				glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + 0.1f * H + ofs, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-aspect + 0.1f * H, 1.0 - H, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-aspect + 0.1f * H + ofs, 1.0 - H + ofs, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		}
+
+		//let player know they are dead
+		if (game_end) {
+			ofs *= 3;
+			lines.draw_text("DEAD HAMSTER",
+				glm::vec3(-float(drawable_size.x)*H / 200.0f, 0.35f, 0.0),
+				glm::vec3(H*3, 0.0f, 0.0f), glm::vec3(0.0f, H*3, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("DEAD HAMSTER",
+				glm::vec3(-float(drawable_size.x)*H / 200.0f + ofs, ofs +0.35f, 0.0),
+				glm::vec3(H*3, 0.0f, 0.0f), glm::vec3(0.0f, H*3, 0.0f),
+				glm::u8vec4(0xff, 0x00, 0x00, 0x00));
+			lines.draw_text("Press 'r' to restart",
+				glm::vec3(-float(drawable_size.x)*H / 225.0f, -0.5f, 0.0),
+				glm::vec3(H*2.0f, 0.0f, 0.0f), glm::vec3(0.0f, H*2.0f, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("Press 'r' to restart",
+				glm::vec3(-float(drawable_size.x)*H  / 225.0f+ofs, -.5f, 0.0),
+				glm::vec3(H*2, 0.0f, 0.0f), glm::vec3(0.0f, H*2.0f, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-float(drawable_size.x)*H / 350.0f, -.25f, 0.0),
+				glm::vec3(H*2, 0.0f, 0.0f), glm::vec3(0.0f, H*2, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-float(drawable_size.x)*H / 350.0f + ofs, -0.25f + ofs, 0.0),
+				glm::vec3(H*2, 0.0f, 0.0f), glm::vec3(0.0f, H*2, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		}
 	}
+	
 }
 
 bool PlayMode::check_intersection(glm::vec3 p0, glm::vec3 direction, glm::vec3 center, float radius)
@@ -282,4 +341,28 @@ bool PlayMode::check_intersection(glm::vec3 p0, glm::vec3 direction, glm::vec3 c
         }
     }
     return false; // No intersection within the segment
+}
+
+void PlayMode::reset()
+{
+	game_end = false;
+
+	//reset hamster position and rotation speed
+	hamster->position = hamster_base_position;
+	rotate_speed = 0;
+	rotate_interval = 0;
+
+	//reset obstacles
+	since_last_obstacle_spawn = 0.0f;
+	spawn_rate = 1.0f;
+	in_use_count = 0;
+	for (uint8_t i = 0; i < uint8_t(obstacles.size()); ++i) {
+		obstacles[i].active = false;
+		obstacles[i].transform->position = despawn_range;
+	}
+	//reset camera
+	camera->transform->position = camera_origin;
+
+	//reset score
+	score = 0;
 }

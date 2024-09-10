@@ -19,23 +19,28 @@ struct PlayMode : Mode {
 
 	bool check_intersection(glm::vec3 p0, glm::vec3 direction, glm::vec3 center, float radius);
 
+	void reset();
+
 	//----- game state -----
 
 	//input tracking:
 	struct Button {
 		uint8_t downs = 0;
 		uint8_t pressed = 0;
-	} left, right, down, up;
+	} left, right, down, up, r;
 
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
+
+	//game ended?
+	bool game_end = false;
 
 	//hexapod leg to wobble:
 	glm::vec2 y_range;
 	glm::vec3 spawn_range = glm::vec3(0);
 	glm::vec3 despawn_range = glm::vec3(0);
 	glm::vec3 up_vector;
-	glm::quat hamster_base_rotation = glm::quat();
+	glm::vec3 hamster_base_position = glm::vec3();
 	Scene::Transform *hamster = nullptr;
 	const float hamster_radius = 5.0f;
 	float rotate_speed = 1.0f;
@@ -54,8 +59,10 @@ struct PlayMode : Mode {
 	float since_last_obstacle_spawn = 0.0f;
 	float spawn_rate = 1.0f;
 	uint8_t in_use_count = 0;
+	uint32_t score = 0;
 	
 	//camera:
 	Scene::Camera *camera = nullptr;
+	glm::vec3 camera_origin;
 
 };
