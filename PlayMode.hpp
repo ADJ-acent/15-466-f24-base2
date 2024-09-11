@@ -27,7 +27,7 @@ struct PlayMode : Mode {
 	struct Button {
 		uint8_t downs = 0;
 		uint8_t pressed = 0;
-	} left, right, down, up, r;
+	} left, right, down, up, r, space;
 
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
@@ -42,6 +42,8 @@ struct PlayMode : Mode {
 	float rotate_speed = 1.0f;
 	const float max_rotate_speed = 5.0f;
 	float rotate_interval = 0;
+	float since_jumped = 0.0f;
+	bool in_jump = false;
 
 	//obstacles
 	struct Obstacle {

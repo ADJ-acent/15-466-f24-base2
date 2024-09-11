@@ -117,7 +117,12 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			r.downs += 1;
 			r.pressed = true;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_SPACE) {
+			space.downs += 1;
+			space.pressed = true;
+			return true;
 		}
+		
 	} else if (evt.type == SDL_KEYUP) {
 		if (evt.key.keysym.sym == SDLK_a) {
 			left.pressed = false;
@@ -133,6 +138,9 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			return true;
 		} else if (evt.key.keysym.sym == SDLK_r) {
 			r.pressed = false;
+			return true;
+		} else if (evt.key.keysym.sym == SDLK_SPACE) {
+			space.pressed = false;
 			return true;
 		} 
 	}
@@ -151,7 +159,6 @@ void PlayMode::update(float elapsed) {
 		rotate_interval -= std::floor(rotate_interval);
 	}
 	rotate_speed += elapsed * 0.2f;
-	
 
 	{// move obstacles closer to hamster and spawn new obstacles
 		since_last_obstacle_spawn += elapsed;
@@ -162,7 +169,7 @@ void PlayMode::update(float elapsed) {
 				glm::vec3 direction = glm::vec3(up_vector * rotate_speed * hamster_radius * 0.5f);
 				obstacles[i].transform->position += direction;
 
-				if (check_intersection(old_pos, direction, hamster->position, hamster_radius + obstacles[i].radius)){
+				if (check_intersection(old_pos - obstacles[i].z_offset/2.0f, direction, hamster->position, hamster_radius + obstacles[i].radius)){
 					game_end = true;
 				}
 				if (obstacles[i].transform->position.x <= despawn_range.x) {
@@ -222,39 +229,47 @@ void PlayMode::update(float elapsed) {
 			glm::vec3(0.0f, 1.0f, 0.0f)
 		);
 	}
+
+	if (space.pressed && !in_jump) {
+		in_jump = true;
+	}
+	if (in_jump) {
+		if (since_jumped >= 1.0f) {
+			since_jumped = 0.0f;
+			in_jump = false;
+			hamster->position.z = hamster_base_position.z;
+		} else {
+			hamster->position.z = hamster_base_position.z + float(std::sin(M_PI * 1.0f * since_jumped) * 10.0f);
+			since_jumped += elapsed;
+		}
+	}
+
 	//reset button press counters:
 	left.downs = 0;
 	right.downs = 0;
 	up.downs = 0;
 	down.downs = 0;
 	r.downs = 0;
+	space.downs = 0;
 }
 
 void PlayMode::draw(glm::uvec2 const &drawable_size) {
 	//update camera aspect ratio for drawable:
 	camera->aspect = float(drawable_size.x) / float(drawable_size.y);
-
+	const glm::vec3 fog_start_color = glm::vec3(0.6f, 0.8f, 1.0f);
+	const glm::vec3 fog_end_color = glm::vec3(0.8f, .5f, .5f);
+	// blend background color closer to death screen
+	glm::vec3 FOG_COLOR = glm::mix(fog_start_color, fog_end_color, std::clamp(rotate_speed-1.0f, 0.0f, 10.0f) / 10.0f);
 	//set up light type and position for lit_color_texture_program:
 	// TODO: consider using the Light(s) in the scene to do this
 	glUseProgram(lit_color_texture_program->program);
 	glUniform1i(lit_color_texture_program->LIGHT_TYPE_int, 1);
 	glUniform3fv(lit_color_texture_program->LIGHT_DIRECTION_vec3, 1, glm::value_ptr(glm::vec3(0.0f, 0.0f,-1.0f)));
 	glUniform3fv(lit_color_texture_program->LIGHT_ENERGY_vec3, 1, glm::value_ptr(glm::vec3(1.0f, 1.0f, 0.95f)));
+	glUniform3fv(lit_color_texture_program->FOG_COLOR, 1, glm::value_ptr(FOG_COLOR));
 	glUseProgram(0);
 
-	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-	glClearDepth(1.0f); //1.0 is actually the default value to clear the depth buffer to, but FYI you can change it.
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS); //this is the default depth comparison function, but FYI you can change it.
-
-	GL_ERRORS(); //print any errors produced by this setup code
-
-	scene.draw(*camera);
-
-	{ //use DrawLines to overlay some text:
-		glDisable(GL_DEPTH_TEST);
+	{//let player know they are dead
 		float aspect = float(drawable_size.x) / float(drawable_size.y);
 		DrawLines lines(glm::mat4(
 			1.0f / aspect, 0.0f, 0.0f, 0.0f,
@@ -262,31 +277,10 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 			0.0f, 0.0f, 1.0f, 0.0f,
 			0.0f, 0.0f, 0.0f, 1.0f
 		));
-
 		constexpr float H = 0.09f;
-		lines.draw_text("WASD moves",
-			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
-			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
-		float ofs = 2.0f / drawable_size.y;
-		if (!game_end) {
-			lines.draw_text("WASD moves",
-				glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + 0.1f * H + ofs, 0.0),
-				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
-			lines.draw_text("Score: " + std::to_string(score),
-				glm::vec3(-aspect + 0.1f * H, 1.0 - H, 0.0),
-				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
-			lines.draw_text("Score: " + std::to_string(score),
-				glm::vec3(-aspect + 0.1f * H + ofs, 1.0 - H + ofs, 0.0),
-				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
-		}
-
-		//let player know they are dead
 		if (game_end) {
-			ofs *= 3;
+			glClearColor(0.8f, .5f, .5f, 1.0f);
+			float ofs = 6.0f / drawable_size.y;
 			lines.draw_text("DEAD HAMSTER",
 				glm::vec3(-float(drawable_size.x)*H / 200.0f, 0.35f, 0.0),
 				glm::vec3(H*3, 0.0f, 0.0f), glm::vec3(0.0f, H*3, 0.0f),
@@ -310,6 +304,52 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 			lines.draw_text("Score: " + std::to_string(score),
 				glm::vec3(-float(drawable_size.x)*H / 350.0f + ofs, -0.25f + ofs, 0.0),
 				glm::vec3(H*2, 0.0f, 0.0f), glm::vec3(0.0f, H*2, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+			glClearDepth(1.0f); //1.0 is actually the default value to clear the depth buffer to, but FYI you can change it.
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			GL_ERRORS(); //print any errors produced by this setup code
+			return;
+		}
+	}
+
+	glClearColor(FOG_COLOR.x, FOG_COLOR.y, FOG_COLOR.z, 1.0f);
+	glClearDepth(1.0f); //1.0 is actually the default value to clear the depth buffer to, but FYI you can change it.
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS); //this is the default depth comparison function, but FYI you can change it.
+
+	GL_ERRORS(); //print any errors produced by this setup code
+
+	scene.draw(*camera);
+
+	{ //use DrawLines to overlay some text:
+		glDisable(GL_DEPTH_TEST);
+		float aspect = float(drawable_size.x) / float(drawable_size.y);
+		DrawLines lines(glm::mat4(
+			1.0f / aspect, 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.0f, 0.0f, 0.0f, 1.0f
+		));
+		constexpr float H = 0.09f;
+		lines.draw_text("WASD to move, Space to jump",
+			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+		float ofs = 2.0f / drawable_size.y;
+		if (!game_end) {
+			lines.draw_text("WASD to move, Space to jump",
+				glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + 0.1f * H + ofs, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-aspect + 0.1f * H, 1.0 - H, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-aspect + 0.1f * H + ofs, 1.0 - H + ofs, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
 		}
 	}
@@ -364,4 +404,8 @@ void PlayMode::reset()
 
 	//reset score
 	score = 0;
+
+	//reset jump
+	in_jump = false;
+	since_jumped = 0.0f;
 }
