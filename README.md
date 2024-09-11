@@ -7,7 +7,9 @@ Design: Hamster has had wayyy too many carrots in the 2D world, it has decided t
 Screen Shot:
 
 ![Screen Shot](screenshot.png)
+
 Gameplay Gif:
+
 ![Gameplay gif](game2.gif)
 
 How To Play:
