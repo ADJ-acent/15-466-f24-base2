@@ -55,12 +55,12 @@ PlayMode::PlayMode() : scene(*main_scene) {
 			despawn_range = transform.position;
 		}
 		else if (transform.name.substr(0,5) == "TreeT") {
-			obstacles[obstacles_count] = {&transform, 2.0f,1.5f, false};
+			obstacles[obstacles_count] = {&transform, 2.0f, 1.5f, true, false};
 
 			obstacles_count++;
 		}
 		else if (transform.name.substr(0,4) == "Rock") {
-			obstacles[obstacles_count] = {&transform, 2.5f, 7.0f, false};
+			obstacles[obstacles_count] = {&transform, 2.5f, 6.0f, false, false};
 			obstacles_count++;
 		}
 	}
@@ -166,12 +166,24 @@ void PlayMode::update(float elapsed) {
 		for (uint8_t i = 0; i < uint8_t(obstacles.size()); ++i) {
 			if (obstacles[i].active) {
 				glm::vec3 old_pos = obstacles[i].transform->position;
-				glm::vec3 direction = glm::vec3(up_vector * rotate_speed * hamster_radius * 0.5f);
+				glm::vec3 direction = glm::vec3(up_vector * rotate_speed * hamster_radius * 50.0f * elapsed); // get how much distance hamster is traveling
 				obstacles[i].transform->position += direction;
 
-				if (check_intersection(old_pos - obstacles[i].z_offset/2.0f, direction, hamster->position, hamster_radius + obstacles[i].radius)){
-					game_end = true;
+				if (glm::distance(obstacles[i].transform->position, hamster->position) 
+					<= hamster_radius + obstacles[i].radius + direction.length() + 10.0f) {
+					// check intersection between obstacle and hamster, move the obstacle point down to ground level
+					if (obstacles[i].is_tree) {
+						game_end = check_intersection(old_pos, direction, hamster->position, hamster_radius + obstacles[i].radius) ||
+							check_intersection(old_pos + glm::vec3(0.0f,0.0f,4.0f), direction, hamster->position, hamster_radius + obstacles[i].radius) ||
+							check_intersection(old_pos + glm::vec3(0.0f,0.0f,8.0f), direction, hamster->position, hamster_radius + obstacles[i].radius) ||
+							check_intersection(old_pos + glm::vec3(0.0f,0.0f,12.0f), direction, hamster->position, hamster_radius + obstacles[i].radius) ||
+							check_intersection(old_pos - glm::vec3(0.0f,0.0f,obstacles[i].z_offset/2.0f), direction, hamster->position, hamster_radius + obstacles[i].radius);
+					} else {
+						game_end = check_intersection(old_pos - glm::vec3(0.0f,0.0f,obstacles[i].z_offset/2.0f), direction, hamster->position, hamster_radius + obstacles[i].radius);
+					}
 				}
+				if (game_end) break;
+	
 				if (obstacles[i].transform->position.x <= despawn_range.x) {
 					obstacles[i].active = false;
 					in_use_count --;
@@ -239,7 +251,7 @@ void PlayMode::update(float elapsed) {
 			in_jump = false;
 			hamster->position.z = hamster_base_position.z;
 		} else {
-			hamster->position.z = hamster_base_position.z + float(std::sin(M_PI * 1.0f * since_jumped) * 10.0f);
+			hamster->position.z = hamster_base_position.z + float(7.0f*(since_jumped* 9.8f - since_jumped * since_jumped * 9.8f));
 			since_jumped += elapsed;
 		}
 	}
@@ -356,6 +368,7 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 	
 }
 
+//sphere intersection check: https://github.com/CMU-Graphics/Scotty3D/blob/main/assignments/A3/T2-intersecting-objects.md
 bool PlayMode::check_intersection(glm::vec3 p0, glm::vec3 direction, glm::vec3 center, float radius)
 {
     glm::vec3 origin_from_center = p0 - center;

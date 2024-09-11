@@ -50,7 +50,8 @@ struct PlayMode : Mode {
 		Scene::Transform *transform;
 		float z_offset = 0.0f;
 		float radius = 0.0f;
-		bool active;
+		bool is_tree = false;
+		bool active = false;
 	};
 
 	glm::vec2 y_range;
