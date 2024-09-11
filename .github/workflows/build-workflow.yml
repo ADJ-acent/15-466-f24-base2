@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: ilammy/msvc-dev-cmd@v1.4.1
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: true
       - name: Fetch Libraries
@@ -31,7 +31,7 @@ jobs:
           #call "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           node Maekfile.js -q && copy README.md dist
       - name: Upload Artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ env.BASE_NAME }}-windows
           path: dist
@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: true
       - name: Fetch Libraries
@@ -75,7 +75,7 @@ jobs:
           ls
           node Maekfile.js -q && cp README.md dist
       - name: Upload Artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ env.BASE_NAME }}-linux
           path: dist
@@ -102,7 +102,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: true
       - name: Fetch Libraries
@@ -117,7 +117,7 @@ jobs:
           ls
           node Maekfile.js -q && cp README.md dist
       - name: Upload Artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ env.BASE_NAME }}-macos
           path: dist
