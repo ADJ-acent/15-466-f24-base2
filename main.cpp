@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
 
 	//create window:
 	SDL_Window *window = SDL_CreateWindow(
-		"After Meal Exercise", 
+		"After-Meal Exercise", 
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		1280, 720, 
 		SDL_WINDOW_OPENGL

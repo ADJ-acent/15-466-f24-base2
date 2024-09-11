@@ -35,6 +35,10 @@ struct PlayMode : Mode {
 	//game ended?
 	bool game_end = false;
 
+	//game title needs to be shown;
+	bool game_title = true;
+	float game_title_timer = 0.0f;
+
 	//hamster:
 	glm::vec3 hamster_base_position = glm::vec3();
 	Scene::Transform *hamster = nullptr;

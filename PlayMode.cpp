@@ -151,6 +151,10 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 void PlayMode::update(float elapsed) {
 	if (r.pressed) reset();
 	if (game_end) return;
+	if (game_title) {
+		game_title_timer += elapsed;
+		if (game_title_timer >= 4.0f) game_title = false;
+	}
 
 	//rotates through [0,1):
 	rotate_interval += elapsed * rotate_speed;
@@ -172,7 +176,7 @@ void PlayMode::update(float elapsed) {
 				if (glm::distance(obstacles[i].transform->position, hamster->position) 
 					<= hamster_radius + obstacles[i].radius + direction.length() + 10.0f) {
 					// check intersection between obstacle and hamster, move the obstacle point down to ground level
-					if (obstacles[i].is_tree) {
+					if (obstacles[i].is_tree) { // just check along the stem...need better collision for next game
 						game_end = check_intersection(old_pos, direction, hamster->position, hamster_radius + obstacles[i].radius) ||
 							check_intersection(old_pos + glm::vec3(0.0f,0.0f,4.0f), direction, hamster->position, hamster_radius + obstacles[i].radius) ||
 							check_intersection(old_pos + glm::vec3(0.0f,0.0f,8.0f), direction, hamster->position, hamster_radius + obstacles[i].radius) ||
@@ -228,9 +232,10 @@ void PlayMode::update(float elapsed) {
 
 		float movement_direction = float(left.pressed) - float(right.pressed);
 		if (movement_direction != 0) {
+			float movement_penalty = in_jump ? 0.5f : 1.0f;
 			hamster->rotation = glm::rotate(hamster->rotation, glm::radians(movement_direction * 10.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 			float old_y = hamster->position.y;
-			hamster->position.y += elapsed * movement_direction * rotate_speed * 15.0f;
+			hamster->position.y += elapsed * movement_direction * rotate_speed * 15.0f * movement_penalty;
 			hamster->position.y = std::clamp(hamster->position.y, y_range.x + 10.0f, y_range.y - 10.0f);
 
 			camera->transform->position.y += hamster->position.y - old_y;
@@ -345,13 +350,13 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 			0.0f, 0.0f, 0.0f, 1.0f
 		));
 		constexpr float H = 0.09f;
-		lines.draw_text("WASD to move, Space to jump",
+		lines.draw_text("AD to move, Space to jump",
 			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
 		float ofs = 2.0f / drawable_size.y;
 		if (!game_end) {
-			lines.draw_text("WASD to move, Space to jump",
+			lines.draw_text("AD to move, Space to jump",
 				glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + 0.1f * H + ofs, 0.0),
 				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
@@ -363,6 +368,17 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 				glm::vec3(-aspect + 0.1f * H + ofs, 1.0 - H + ofs, 0.0),
 				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		}
+		if (game_title){
+			ofs *= 3.0f;
+			lines.draw_text("After-Meal Exercise",
+				glm::vec3(-float(drawable_size.x)*H / 125.0f, 0.35f, 0.0),
+				glm::vec3(H*3, 0.0f, 0.0f), glm::vec3(0.0f, H*3, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("After-Meal Exercise",
+				glm::vec3(-float(drawable_size.x)*H / 125.0f + ofs, ofs +0.35f, 0.0),
+				glm::vec3(H*3, 0.0f, 0.0f), glm::vec3(0.0f, H*3, 0.0f),
+				glm::u8vec4(0x0F, 0xFF, 0xAF, 0x00));
 		}
 	}
 	
